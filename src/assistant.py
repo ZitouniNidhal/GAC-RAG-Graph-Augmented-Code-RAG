@@ -25,6 +25,7 @@ ANSWER_SYSTEM_PROMPT = """You are an expert code assistant with deep knowledge o
 
 
 
+
 class CodeAssistant:
     """
     End-to-end GAC-RAG Code Assistant.
