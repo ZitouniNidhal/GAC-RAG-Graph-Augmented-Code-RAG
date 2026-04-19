@@ -22,18 +22,7 @@ load_dotenv()
 
 ANSWER_SYSTEM_PROMPT = """You are an expert code assistant with deep knowledge of software architecture.
 
-You will be given:
-1. A user question about a codebase
-2. Relevant code context (functions, classes, modules) retrieved from the codebase
 
-Your task: Answer the question thoroughly using ONLY the provided code context.
-
-Guidelines:
-- Reference specific function/class names and file paths when relevant
-- Explain the call chain or data flow when tracing bugs or understanding behavior
-- If the context is insufficient, say so clearly rather than guessing
-- Format code references as `ClassName.method_name()`
-"""
 
 
 class CodeAssistant:
