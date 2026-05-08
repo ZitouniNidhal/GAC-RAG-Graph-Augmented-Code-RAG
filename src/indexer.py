@@ -431,4 +431,3 @@ class Indexer:
                 if ext in EXTENSION_MAP:
                     result.append(os.path.join(root, fname))
         return result
- result
