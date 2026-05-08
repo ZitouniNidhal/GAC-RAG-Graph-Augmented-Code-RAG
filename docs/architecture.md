@@ -47,9 +47,9 @@ score(node at hop h) = anchor_score × decay^h
 
 ### Layer 3: LLM Reranker
 
-**Backend**: Claude (claude-sonnet)
+**Backend**: Claude (claude-3-5-sonnet) or GPT-4 (via OpenAI)
 
-The expanded node list (potentially 20–50 nodes) is passed to Claude with the original query. Claude returns only the node IDs that are **necessary** to answer the question, with reasoning.
+The expanded node list (potentially 20–50 nodes) is passed to the selected LLM with the original query. The LLM returns only the node IDs that are **necessary** to answer the question, with reasoning.
 
 This prevents context window bloat and removes noise introduced by graph traversal.
 
@@ -96,6 +96,11 @@ Indexer.index_repo()
     │   ├── Extract inheritance edges (ast.ClassDef.bases)
     │   └── Extract import edges (ast.Import / ast.ImportFrom)
     │
+    ├── TreeSitterParser (tree-sitter based) ★
+    │   ├── Multi-language support (JS/TS, Java, Go, etc.)
+    │   ├── Robust syntax tree traversal
+    │   └── Precise node and edge extraction
+    │
     └── GenericParser (regex-based, fallback)
         ├── Extract function/class names
         └── Minimal edge extraction
@@ -110,7 +115,7 @@ CodeNode list + CodeEdge list
 ## Query Pipeline
 
 ```
-User Query
+User Query (CLI or API)
     │
     ▼
 VectorStore.search(query, top_k=5)
@@ -129,9 +134,18 @@ Retriever.format_context(final_nodes)
 → context string
     │
     ▼
-Claude.messages.create(query + context)
-→ Final answer
+LLM (Anthropic/OpenAI).messages.create(query + context) ★
+→ Final answer (Streaming support included)
 ```
+
+## Features Summary
+
+- 🕸️ **Graph-Augmented Retrieval**: Uses dependency graphs to find relevant context that pure vector search misses.
+- 🌳 **Tree-Sitter Indexing**: Powerful, multi-language parsing for accurate code structure extraction.
+- 🤖 **Multi-LLM Support**: Seamlessly switch between Anthropic (Claude) and OpenAI (GPT-4).
+- 📺 **Interactive CLI**: Rich terminal interface for indexing and querying.
+- 🌊 **Streaming Responses**: Real-time feedback for long-form answers.
+- 📊 **Graph Visualization**: Tools to visualize the retrieved code subgraph.
 
 ## Configuration
 
@@ -143,4 +157,5 @@ All parameters are configurable via `.env`:
 | `TOP_K_ANCHOR` | 5 | Semantic search top-k |
 | `RELEVANCE_DECAY` | 0.8 | Score decay per hop |
 | `MAX_CONTEXT_NODES` | 20 | Max nodes sent to LLM |
+| `LLM_PROVIDER` | anthropic | `anthropic` or `openai` |
 | `EMBEDDING_MODEL` | all-MiniLM-L6-v2 | SentenceTransformer model |
