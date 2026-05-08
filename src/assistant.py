@@ -17,6 +17,11 @@ from typing import Optional, Iterator, Literal
 import anthropic
 from openai import OpenAI
 from dotenv import load_dotenv
+try:
+    import google.generativeai as genai
+    HAS_GOOGLE = True
+except ImportError:
+    HAS_GOOGLE = False
 
 from src.indexer import Indexer
 from src.graph_store import GraphStore, CodeNode
@@ -57,7 +62,7 @@ class CodeAssistant:
         self,
         repo_path: str,
         api_key: Optional[str] = None,
-        llm_provider: Literal["anthropic", "openai"] = "anthropic",
+        llm_provider: Literal["anthropic", "openai", "google"] = "anthropic",
         model: Optional[str] = None,
         graph_store: Optional[GraphStore] = None,
         vector_store: Optional[VectorStore] = None,
@@ -71,6 +76,13 @@ class CodeAssistant:
                 raise ValueError("❌ ANTHROPIC_API_KEY is missing! Please add it to your .env file.")
             self.model = model or "claude-3-5-sonnet-20240620"
             self.client = anthropic.Anthropic(api_key=self.api_key)
+        elif llm_provider == "google":
+            self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
+            if not self.api_key or "your_google_key" in self.api_key:
+                raise ValueError("❌ GOOGLE_API_KEY is missing! Please add it to your .env file.")
+            genai.configure(api_key=self.api_key)
+            self.model = model or "gemini-1.5-pro"
+            self.client = genai.GenerativeModel(self.model)
         else:
             self.api_key = api_key or os.getenv("OPENAI_API_KEY")
             if not self.api_key or "your_openai_key" in self.api_key:
@@ -220,23 +232,30 @@ class CodeAssistant:
 
 Relevant code context:
 {context}"""
+        prompt = f"""Question: {query}
+
+Relevant code context:
+{context}"""
+        system_prompt = ANSWER_SYSTEM_PROMPT
 
         if self.llm_provider == "anthropic":
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=2000,
-                system=ANSWER_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_message}],
+                system=system_prompt,
+                messages=[{"role": "user", "content": prompt}]
             )
             return response.content[0].text
+        elif self.llm_provider == "google":
+            response = self.client.generate_content(f"{system_prompt}\n\n{prompt}")
+            return response.text
         else:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": ANSWER_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_message}
-                ],
-                max_tokens=2000,
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ]
             )
             return response.choices[0].message.content
 
@@ -253,25 +272,30 @@ Relevant code context:
             final_nodes = candidates
 
         context = self.retriever.format_context(final_nodes)
-        user_message = f"Question: {query}\n\nContext:\n{context}"
+        prompt = f"Question: {query}\n\nContext:\n{context}"
+        system_prompt = ANSWER_SYSTEM_PROMPT
 
         if self.llm_provider == "anthropic":
             with self.client.messages.stream(
                 model=self.model,
                 max_tokens=2000,
-                system=ANSWER_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_message}],
+                system=system_prompt,
+                messages=[{"role": "user", "content": prompt}]
             ) as stream:
                 for text in stream.text_stream:
                     yield text
+        elif self.llm_provider == "google":
+            response = self.client.generate_content(f"{system_prompt}\n\n{prompt}", stream=True)
+            for chunk in response:
+                yield chunk.text
         else:
             stream = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": ANSWER_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_message}
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
                 ],
-                stream=True,
+                stream=True
             )
             for chunk in stream:
                 if chunk.choices[0].delta.content:

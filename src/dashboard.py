@@ -72,7 +72,7 @@ with st.sidebar:
     st.markdown("---")
     
     repo_path = st.text_input("Repository Path", value="./sample_repo")
-    llm_provider = st.selectbox("LLM Provider", ["anthropic", "openai"])
+    llm_provider = st.selectbox("LLM Provider", ["anthropic", "openai", "google"])
     
     col1, col2 = st.columns(2)
     with col1:

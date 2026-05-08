@@ -41,7 +41,7 @@ class Reranker:
     def __init__(
         self, 
         api_key: Optional[str] = None, 
-        provider: Literal["anthropic", "openai"] = "anthropic",
+        provider: Literal["anthropic", "openai", "google"] = "anthropic",
         model: Optional[str] = None
     ):
         self.provider = provider
@@ -49,6 +49,11 @@ class Reranker:
             self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
             self.model = model or "claude-3-5-sonnet-20240620"
             self.client = anthropic.Anthropic(api_key=self.api_key)
+        elif provider == "google":
+            self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
+            genai.configure(api_key=self.api_key)
+            self.model = model or "gemini-1.5-flash"
+            self.client = genai.GenerativeModel(self.model)
         else:
             self.api_key = api_key or os.getenv("OPENAI_API_KEY")
             self.model = model or "gpt-4-turbo"
@@ -79,11 +84,14 @@ Which of these nodes are necessary to answer the question?"""
             if self.provider == "anthropic":
                 response = self.client.messages.create(
                     model=self.model,
-                    max_tokens=1000,
+                    max_tokens=2000,
                     system=RERANKER_SYSTEM_PROMPT,
                     messages=[{"role": "user", "content": prompt}],
                 )
                 raw = response.content[0].text.strip()
+            elif self.provider == "google":
+                response = self.client.generate_content(f"{RERANKER_SYSTEM_PROMPT}\n\n{prompt}")
+                raw = response.text.strip()
             else:
                 response = self.client.chat.completions.create(
                     model=self.model,
@@ -92,6 +100,7 @@ Which of these nodes are necessary to answer the question?"""
                         {"role": "user", "content": prompt}
                     ],
                     max_tokens=1000,
+                    response_format={"type": "json_object"}
                 )
                 raw = response.choices[0].message.content.strip()
 
