@@ -192,6 +192,111 @@ class PythonParser:
 
 
 # ------------------------------------------------------------------ #
+#  Tree-Sitter based parser (Multi-language)                         #
+# ------------------------------------------------------------------ #
+
+from tree_sitter import Language, Parser
+import tree_sitter_python as tspython
+import tree_sitter_javascript as tsjs
+import tree_sitter_java as tsjava
+
+class TreeSitterParser:
+    """
+    Robust multi-language parser using tree-sitter.
+    Extracts nodes (functions, classes) and edges (calls, imports).
+    """
+
+    def __init__(self):
+        self.languages = {
+            "python": Language(tspython.language()),
+            "javascript": Language(tsjs.language()),
+            "java": Language(tsjava.language()),
+        }
+        self.parser = Parser()
+
+    def parse_file(self, file_path: str, source: str, language: str) -> tuple[list[CodeNode], list[CodeEdge]]:
+        if language not in self.languages:
+            return [], []
+
+        self.parser.set_language(self.languages[language])
+        tree = self.parser.parse(bytes(source, "utf8"))
+        
+        nodes: list[CodeNode] = []
+        edges: list[CodeEdge] = []
+        module_id = f"module::{Path(file_path).stem}"
+
+        # Create module node
+        module_node = CodeNode(
+            id=module_id,
+            name=Path(file_path).stem,
+            kind="module",
+            file_path=file_path,
+            start_line=1,
+            end_line=source.count("\n") + 1,
+            source_code=source[:500],
+            language=language,
+        )
+        nodes.append(module_node)
+
+        # Basic queries for different languages
+        queries = {
+            "python": """
+                (function_definition name: (identifier) @func.name) @func.def
+                (class_definition name: (identifier) @class.name) @class.def
+                (call function: (identifier) @call.name) @call
+                (import_from_statement module_name: (dotted_name) @import.name)
+            """,
+            "javascript": """
+                (function_declaration name: (identifier) @func.name) @func.def
+                (class_declaration name: (identifier) @class.name) @class.def
+                (call_expression function: (identifier) @call.name) @call
+            """,
+            "java": """
+                (method_declaration name: (identifier) @func.name) @func.def
+                (class_declaration name: (identifier) @class.name) @class.def
+                (method_invocation name: (identifier) @call.name) @call
+            """
+        }
+
+        if language in queries:
+            query = self.languages[language].query(queries[language])
+            captures = query.captures(tree.root_node)
+
+            for node, tag in captures:
+                if tag == "func.def":
+                    name_node = node.child_by_field_name("name")
+                    if name_node:
+                        name = source[name_node.start_byte : name_node.end_byte]
+                        fn_id = f"{module_id}::{name}"
+                        nodes.append(CodeNode(
+                            id=fn_id, name=name, kind="function",
+                            file_path=file_path, 
+                            start_line=node.start_point[0] + 1,
+                            end_line=node.end_point[0] + 1,
+                            source_code=source[node.start_byte : node.end_byte],
+                            language=language,
+                        ))
+                        edges.append(CodeEdge(source_id=module_id, target_id=fn_id, kind="CONTAINS"))
+                
+                elif tag == "class.def":
+                    name_node = node.child_by_field_name("name")
+                    if name_node:
+                        name = source[name_node.start_byte : name_node.end_byte]
+                        cls_id = f"{module_id}::{name}"
+                        nodes.append(CodeNode(
+                            id=cls_id, name=name, kind="class",
+                            file_path=file_path,
+                            start_line=node.start_point[0] + 1,
+                            end_line=node.end_point[0] + 1,
+                            source_code=source[node.start_byte : node.end_byte][:500],
+                            language=language,
+                        ))
+                        edges.append(CodeEdge(source_id=module_id, target_id=cls_id, kind="CONTAINS"))
+
+        return nodes, edges
+
+
+# ------------------------------------------------------------------ #
 #  Generic fallback parser (regex-based)                             #
 # ------------------------------------------------------------------ #
 
@@ -264,6 +369,7 @@ class Indexer:
 
     def __init__(self):
         self.python_parser = PythonParser()
+        self.ts_parser = TreeSitterParser()
         self.generic_parser = GenericParser()
 
     def index_repo(self, repo_path: str) -> tuple[list[CodeNode], list[CodeEdge]]:
@@ -288,6 +394,8 @@ class Indexer:
 
             if language == "python":
                 nodes, edges = self.python_parser.parse_file(file_path, source)
+            elif language in ["javascript", "typescript", "java"]:
+                nodes, edges = self.ts_parser.parse_file(file_path, source, language)
             else:
                 nodes, edges = self.generic_parser.parse_file(file_path, source, language)
 
@@ -315,3 +423,4 @@ class Indexer:
                 if ext in EXTENSION_MAP:
                     result.append(os.path.join(root, fname))
         return result
+ result

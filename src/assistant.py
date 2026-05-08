@@ -8,12 +8,15 @@ Ties together: Indexer → GraphStore + VectorStore → Retriever → Reranker �
 from __future__ import annotations
 import os
 import json
-from typing import Optional
+import networkx as nx
+import matplotlib.pyplot as plt
+from typing import Optional, Iterator, Literal
 import anthropic
+from openai import OpenAI
 from dotenv import load_dotenv
 
 from src.indexer import Indexer
-from src.graph_store import GraphStore
+from src.graph_store import GraphStore, CodeNode
 from src.vector_store import VectorStore
 from src.retriever import Retriever
 from src.reranker import Reranker
@@ -22,8 +25,18 @@ load_dotenv()
 
 ANSWER_SYSTEM_PROMPT = """You are an expert code assistant with deep knowledge of software architecture.
 
+You will be given:
+1. A user question about a codebase
+2. Relevant code context (functions, classes, modules) retrieved from the codebase
 
+Your task: Answer the question thoroughly using ONLY the provided code context.
 
+Guidelines:
+- Reference specific function/class names and file paths when relevant
+- Explain the call chain or data flow when tracing bugs or understanding behavior
+- If the context is insufficient, say so clearly rather than guessing
+- Format code references as `ClassName.method_name()`
+"""
 
 
 class CodeAssistant:
@@ -41,18 +54,28 @@ class CodeAssistant:
         self,
         repo_path: str,
         api_key: Optional[str] = None,
+        llm_provider: Literal["anthropic", "openai"] = "anthropic",
+        model: Optional[str] = None,
         graph_store: Optional[GraphStore] = None,
         vector_store: Optional[VectorStore] = None,
     ):
         self.repo_path = repo_path
-        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        self.llm_provider = llm_provider
+        
+        if llm_provider == "anthropic":
+            self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+            self.model = model or "claude-3-5-sonnet-20240620"
+            self.client = anthropic.Anthropic(api_key=self.api_key)
+        else:
+            self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+            self.model = model or "gpt-4-turbo"
+            self.client = OpenAI(api_key=self.api_key)
 
         self.graph_store = graph_store or GraphStore()
         self.vector_store = vector_store or VectorStore()
         self.indexer = Indexer()
         self.retriever = Retriever(self.graph_store, self.vector_store)
-        self.reranker = Reranker(api_key=self.api_key)
-        self.client = anthropic.Anthropic(api_key=self.api_key)
+        self.reranker = Reranker(api_key=self.api_key, provider=llm_provider)
 
     # ------------------------------------------------------------------ #
     #  Indexing                                                            #
@@ -137,14 +160,61 @@ class CodeAssistant:
 Relevant code context:
 {context}"""
 
-        response = self.client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
-            system=ANSWER_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
-        )
+        if self.llm_provider == "anthropic":
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=2000,
+                system=ANSWER_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_message}],
+            )
+            return response.content[0].text
+        else:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": ANSWER_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message}
+                ],
+                max_tokens=2000,
+            )
+            return response.choices[0].message.content
 
-        return response.content[0].text
+    def stream_ask(
+        self,
+        query: str,
+        use_reranker: bool = True,
+    ) -> Iterator[str]:
+        """Stream the answer for real-time interaction."""
+        candidates = self.retriever.retrieve(query)
+        if use_reranker and candidates:
+            final_nodes, _ = self.reranker.rerank(query, candidates)
+        else:
+            final_nodes = candidates
+
+        context = self.retriever.format_context(final_nodes)
+        user_message = f"Question: {query}\n\nContext:\n{context}"
+
+        if self.llm_provider == "anthropic":
+            with self.client.messages.stream(
+                model=self.model,
+                max_tokens=2000,
+                system=ANSWER_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_message}],
+            ) as stream:
+                for text in stream.text_stream:
+                    yield text
+        else:
+            stream = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": ANSWER_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message}
+                ],
+                stream=True,
+            )
+            for chunk in stream:
+                if chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
 
     def ask_with_decomposition(
         self,
@@ -211,37 +281,33 @@ Relevant code context:
     #  Comparison helper (for the demo notebook)                          #
     # ------------------------------------------------------------------ #
 
-    def compare_with_naive_rag(self, query: str) -> dict:
-        """
-        Run both naive RAG (vector only) and GAC-RAG (full pipeline),
-        return both answers + context stats for comparison.
-        """
-        # Naive RAG: vector search only, no graph expansion, no reranker
-        anchor_hits = self.retriever._layer1_semantic_anchor(query)
-        naive_node_ids = [node_id for node_id, _ in anchor_hits]
-        naive_nodes = [self.graph_store.get_node(nid) for nid in naive_node_ids]
-        naive_nodes = [n for n in naive_nodes if n]
-        naive_context = self.retriever.format_context(naive_nodes)
+    # ------------------------------------------------------------------ #
+    #  Visualization                                                       #
+    # ------------------------------------------------------------------ #
 
-        naive_response = self.client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=800,
-            system=ANSWER_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": f"Question: {query}\n\nContext:\n{naive_context}"}],
-        )
-
-        # GAC-RAG: full pipeline
-        gac_answer = self.ask(query, use_reranker=True)
-
-        return {
-            "query": query,
-            "naive_rag": {
-                "answer": naive_response.content[0].text,
-                "nodes_retrieved": len(naive_nodes),
-                "context_preview": naive_context[:500],
-            },
-            "gac_rag": {
-                "answer": gac_answer,
-                "nodes_retrieved": len(anchor_hits),
-            },
-        }
+    def visualize_context(self, nodes: list[CodeNode], title: str = "Retrieved Context Graph"):
+        """Generate a plot of the retrieved nodes and their relationships."""
+        G = nx.DiGraph()
+        
+        # Add nodes
+        for node in nodes:
+            G.add_node(node.id, label=node.name, kind=node.kind)
+        
+        # Add edges (only between retrieved nodes)
+        node_ids = {n.id for n in nodes}
+        for node in nodes:
+            # We'd need a way to get edges for these nodes. 
+            # For simplicity, let's query the graph store for edges between these nodes.
+            pass # Simplified for now, or we could fetch them
+            
+        plt.figure(figsize=(12, 8))
+        pos = nx.spring_layout(G)
+        
+        colors = {"function": "lightblue", "class": "orange", "module": "lightgreen"}
+        node_colors = [colors.get(G.nodes[n]["kind"], "gray") for n in G.nodes]
+        
+        nx.draw(G, pos, with_labels=True, labels=nx.get_node_attributes(G, 'label'),
+                node_color=node_colors, node_size=2000, font_size=10, arrowsize=20)
+        
+        plt.title(title)
+        plt.show()
