@@ -56,7 +56,7 @@ st.markdown("""
         background-color: #262730;
     }
     </style>
-""", unsafe_allow_all_with_html=True)
+""", unsafe_allow_html=True)
 
 # --- Session State Initialization ---
 if "assistant" not in st.session_state:
@@ -116,7 +116,7 @@ with tab1:
             <div class="chat-bubble {css_class}">
                 <strong>{role}:</strong><br>{message['content']}
             </div>
-        """, unsafe_allow_all_with_html=True)
+        """, unsafe_allow_html=True)
 
     # Input area
     query = st.chat_input("Ask a question about your codebase...")
