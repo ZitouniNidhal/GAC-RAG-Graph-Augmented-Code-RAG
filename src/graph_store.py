@@ -205,6 +205,24 @@ class GraphStore:
             result = session.run("MATCH ()-[r]->() RETURN count(r) AS c").single()
             return result["c"] if result else 0
 
+    def get_health_stats(self) -> dict:
+        """Analyze graph structure and return health metrics."""
+        stats = {}
+        with self.driver.session() as session:
+            # Orphan nodes (no edges)
+            orphan_q = "MATCH (n:CodeNode) WHERE NOT (n)--() RETURN count(n) AS c"
+            stats["orphan_nodes"] = session.run(orphan_q).single()["c"]
+            
+            # Nodes by kind
+            kind_q = "MATCH (n:CodeNode) RETURN n.kind AS kind, count(n) AS count"
+            stats["by_kind"] = {r["kind"]: r["count"] for r in session.run(kind_q)}
+            
+            # Avg degree
+            degree_q = "MATCH (n:CodeNode) WITH n, size((n)--()) AS degree RETURN avg(degree) AS avg_deg"
+            stats["avg_degree"] = session.run(degree_q).single()["avg_deg"] or 0
+            
+        return stats
+
     # ------------------------------------------------------------------ #
     #  Helpers                                                             #
     # ------------------------------------------------------------------ #

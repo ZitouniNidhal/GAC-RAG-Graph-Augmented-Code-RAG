@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 from tqdm import tqdm
 from src.graph_store import CodeNode, CodeEdge
+from src.summarizer import Summarizer
 
 
 # ------------------------------------------------------------------ #
@@ -367,10 +368,11 @@ class Indexer:
     stored in GraphStore + VectorStore.
     """
 
-    def __init__(self):
+    def __init__(self, use_summarizer: bool = False):
         self.python_parser = PythonParser()
         self.ts_parser = TreeSitterParser()
         self.generic_parser = GenericParser()
+        self.summarizer = Summarizer() if use_summarizer else None
 
     def index_repo(self, repo_path: str) -> tuple[list[CodeNode], list[CodeEdge]]:
         """
@@ -398,6 +400,12 @@ class Indexer:
                 nodes, edges = self.ts_parser.parse_file(file_path, source, language)
             else:
                 nodes, edges = self.generic_parser.parse_file(file_path, source, language)
+
+            # Enrich with summaries if enabled
+            if self.summarizer:
+                for n in nodes:
+                    if n.kind in ["function", "class"] and not n.docstring:
+                        n.docstring = self.summarizer.summarize(n.name, n.kind, n.source_code)
 
             for n in nodes:
                 all_nodes[n.id] = n
