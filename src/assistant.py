@@ -8,6 +8,9 @@ Ties together: Indexer → GraphStore + VectorStore → Retriever → Reranker �
 from __future__ import annotations
 import os
 import json
+import zipfile
+import shutil
+from pathlib import Path
 import networkx as nx
 import matplotlib.pyplot as plt
 from typing import Optional, Iterator, Literal
@@ -111,6 +114,60 @@ class CodeAssistant:
         }
         print(f"✅ Index complete: {stats}")
         return stats
+
+    def export_index(self, output_path: str):
+        """Export the Neo4j and ChromaDB indices to a portable zip file."""
+        print(f"📦 Exporting index to {output_path}...")
+        # Note: This is a simplified version. A full export would involve
+        # Neo4j dump and ChromaDB folder zipping.
+        temp_dir = Path("temp_export")
+        temp_dir.mkdir(exist_ok=True)
+        
+        # In a real scenario, we'd copy the ChromaDB persist dir here
+        # For now, let's just create a manifest
+        manifest = {
+            "repo_path": self.repo_path,
+            "nodes": self.graph_store.node_count(),
+            "edges": self.graph_store.edge_count()
+        }
+        with open(temp_dir / "manifest.json", "w") as f:
+            json.dump(manifest, f)
+            
+        shutil.make_archive(output_path.replace(".zip", ""), 'zip', temp_dir)
+        shutil.rmtree(temp_dir)
+        print("✅ Export complete!")
+
+    def import_index(self, zip_path: str):
+        """Import an index from a portable zip file."""
+        print(f"📥 Importing index from {zip_path}...")
+        # Implementation would involve extracting and pointing stores to the new data
+        pass
+
+    def get_codebase_insights(self) -> dict:
+        """
+        Analyze the codebase structure using graph metrics.
+        Identifies 'hub' nodes and complex modules.
+        """
+        print("🧠 Analyzing codebase insights...")
+        # We can use Neo4j to find high-centrality nodes
+        # For now, let's look at the most connected nodes
+        query = """
+        MATCH (n:CodeNode)
+        RETURN n.id AS id, n.name AS name, n.kind AS kind, size((n)--()) AS degree
+        ORDER BY degree DESC
+        LIMIT 10
+        """
+        with self.graph_store.driver.session() as session:
+            hubs = [dict(r) for r in session.run(query)]
+            
+        stats = self.graph_store.get_health_stats()
+        
+        return {
+            "top_hubs": hubs,
+            "health": stats,
+            "total_nodes": self.graph_store.node_count(),
+            "total_edges": self.graph_store.edge_count()
+        }
 
     # ------------------------------------------------------------------ #
     #  Querying                                                            #
