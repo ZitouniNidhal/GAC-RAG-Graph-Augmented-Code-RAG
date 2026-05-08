@@ -67,10 +67,14 @@ class CodeAssistant:
         
         if llm_provider == "anthropic":
             self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+            if not self.api_key or "your_anthropic_key" in self.api_key:
+                raise ValueError("❌ ANTHROPIC_API_KEY is missing! Please add it to your .env file.")
             self.model = model or "claude-3-5-sonnet-20240620"
             self.client = anthropic.Anthropic(api_key=self.api_key)
         else:
             self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+            if not self.api_key or "your_openai_key" in self.api_key:
+                raise ValueError("❌ OPENAI_API_KEY is missing! Please add it to your .env file.")
             self.model = model or "gpt-4-turbo"
             self.client = OpenAI(api_key=self.api_key)
 
