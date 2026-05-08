@@ -129,4 +129,3 @@ class VectorStore:
             parts.append(f"doc: {node.docstring[:200]}")
         parts.append(f"code: {source_preview}")
         return " | ".join(parts)
-s)
