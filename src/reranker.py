@@ -4,6 +4,11 @@ from typing import Optional, Literal, List, Tuple
 import anthropic
 from openai import OpenAI
 from dotenv import load_dotenv
+try:
+    import google.generativeai as genai
+except ImportError:
+    pass
+
 from src.graph_store import CodeNode
 
 load_dotenv()

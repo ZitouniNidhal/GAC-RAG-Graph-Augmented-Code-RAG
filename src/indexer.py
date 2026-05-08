@@ -385,7 +385,7 @@ class Indexer:
         all_edges: list[CodeEdge] = []
 
         files = self._collect_files(repo_path)
-        print(f"📂 Found {len(files)} source files to index...")
+        print(f"Found {len(files)} source files to index...")
 
         for file_path in tqdm(files, desc="Indexing"):
             language = EXTENSION_MAP.get(Path(file_path).suffix.lower(), "unknown")
@@ -418,7 +418,7 @@ class Indexer:
             if e.source_id in node_ids and e.target_id in node_ids
         ]
 
-        print(f"✅ Indexed {len(all_nodes)} nodes, {len(valid_edges)} edges")
+        print(f"Indexed {len(all_nodes)} nodes, {len(valid_edges)} edges")
         return list(all_nodes.values()), valid_edges
 
     @staticmethod

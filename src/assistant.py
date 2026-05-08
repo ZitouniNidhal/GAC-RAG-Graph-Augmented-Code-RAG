@@ -111,14 +111,14 @@ class CodeAssistant:
             Stats dict: {"nodes": int, "edges": int}
         """
         if clear_existing:
-            print("🗑️  Clearing existing index...")
+            print("Clearing existing index...")
             self.graph_store.clear()
             self.vector_store.clear()
 
-        print(f"🔍 Indexing repository: {self.repo_path}")
+        print(f"Indexing repository: {self.repo_path}")
         nodes, edges = self.indexer.index_repo(self.repo_path)
 
-        print(f"📊 Storing {len(nodes)} nodes in Neo4j + ChromaDB...")
+        print(f"Storing {len(nodes)} nodes in Neo4j + ChromaDB...")
         self.graph_store.add_nodes_batch(nodes)
         self.graph_store.add_edges_batch(edges)
         self.vector_store.add_nodes_batch(nodes)
@@ -128,12 +128,12 @@ class CodeAssistant:
             "edges": self.graph_store.edge_count(),
             "vectors": self.vector_store.count(),
         }
-        print(f"✅ Index complete: {stats}")
+        print(f"Index complete: {stats}")
         return stats
 
     def export_index(self, output_path: str):
         """Export the Neo4j and ChromaDB indices to a portable zip file."""
-        print(f"📦 Exporting index to {output_path}...")
+        print(f"Exporting index to {output_path}...")
         # Note: This is a simplified version. A full export would involve
         # Neo4j dump and ChromaDB folder zipping.
         temp_dir = Path("temp_export")
@@ -151,11 +151,11 @@ class CodeAssistant:
             
         shutil.make_archive(output_path.replace(".zip", ""), 'zip', temp_dir)
         shutil.rmtree(temp_dir)
-        print("✅ Export complete!")
+        print("Export complete!")
 
     def import_index(self, zip_path: str):
         """Import an index from a portable zip file."""
-        print(f"📥 Importing index from {zip_path}...")
+        print(f"Importing index from {zip_path}...")
         # Implementation would involve extracting and pointing stores to the new data
         pass
 
@@ -164,7 +164,7 @@ class CodeAssistant:
         Analyze the codebase structure using graph metrics.
         Identifies 'hub' nodes and complex modules.
         """
-        print("🧠 Analyzing codebase insights...")
+        print("Analyzing codebase insights...")
         # We can use Neo4j to find high-centrality nodes
         # For now, let's look at the most connected nodes
         query = """
@@ -207,7 +207,7 @@ class CodeAssistant:
             Answer string from Claude.
         """
         # ── Retrieve ─────────────────────────────────────────────────
-        print(f"\n🔎 Retrieving context for: {query!r}")
+        print(f"\nRetrieving context for: {query!r}")
         candidates = self.retriever.retrieve(query, verbose=verbose)
         print(f"   Retrieved {len(candidates)} candidate nodes")
 
@@ -313,7 +313,7 @@ Relevant code context:
         """
         sub_queries = self._decompose_query(query)
         if verbose:
-            print(f"\n🔀 Decomposed into {len(sub_queries)} sub-queries:")
+            print(f"\nDecomposed into {len(sub_queries)} sub-queries:")
             for sq in sub_queries:
                 print(f"   • {sq}")
 

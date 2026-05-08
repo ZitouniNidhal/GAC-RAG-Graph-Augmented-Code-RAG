@@ -25,7 +25,7 @@ def setup_demo():
             
     # Initialize assistant
     print("Initializing Assistant...")
-    assistant = CodeAssistant(repo_path=repo_path)
+    assistant = CodeAssistant(repo_path=repo_path, llm_provider="google")
     
     # Start Indexing
     print("Indexing repository (this may take a minute)...")

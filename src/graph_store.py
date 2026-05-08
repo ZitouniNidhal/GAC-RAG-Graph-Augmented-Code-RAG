@@ -60,14 +60,20 @@ class GraphStore:
         self.uri = uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
         self.user = user or os.getenv("NEO4J_USER", "neo4j")
         self.password = password or os.getenv("NEO4J_PASSWORD", "password")
-        self.driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password))
-        self._ensure_constraints()
+        self.driver = None
+        try:
+            self.driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password))
+            self._ensure_constraints()
+            print("Connected to Neo4j.")
+        except Exception as e:
+            print(f"Warning: Could not connect to Neo4j ({e}). Graph features will be disabled. Only Vector RAG will run.")
 
     # ------------------------------------------------------------------ #
     #  Schema                                                              #
     # ------------------------------------------------------------------ #
 
     def _ensure_constraints(self):
+        if not self.driver: return
         with self.driver.session() as session:
             session.run(
                 "CREATE CONSTRAINT code_node_id IF NOT EXISTS "
@@ -79,6 +85,7 @@ class GraphStore:
     # ------------------------------------------------------------------ #
 
     def add_node(self, node: CodeNode) -> None:
+        if not self.driver: return
         query = """
         MERGE (n:CodeNode {id: $id})
         SET n.name       = $name,
@@ -94,6 +101,7 @@ class GraphStore:
             session.run(query, **node.__dict__)
 
     def add_edge(self, edge: CodeEdge) -> None:
+        if not self.driver: return
         query = f"""
         MATCH (a:CodeNode {{id: $source_id}})
         MATCH (b:CodeNode {{id: $target_id}})
@@ -121,6 +129,7 @@ class GraphStore:
     # ------------------------------------------------------------------ #
 
     def get_node(self, node_id: str) -> Optional[CodeNode]:
+        if not self.driver: return None
         query = "MATCH (n:CodeNode {id: $id}) RETURN n"
         with self.driver.session() as session:
             result = session.run(query, id=node_id).single()
@@ -139,6 +148,7 @@ class GraphStore:
         BFS traversal up to `hops` levels.
         Returns neighbors with decayed relevance scores.
         """
+        if not self.driver: return []
         edge_filter = ""
         if edge_types:
             types = "|".join(edge_types)
@@ -168,6 +178,7 @@ class GraphStore:
 
     def get_callers(self, node_id: str) -> list[CodeNode]:
         """Who calls this node?"""
+        if not self.driver: return []
         query = """
         MATCH (caller:CodeNode)-[:CALLS]->(n:CodeNode {id: $id})
         RETURN caller
@@ -180,6 +191,7 @@ class GraphStore:
 
     def get_callees(self, node_id: str) -> list[CodeNode]:
         """What does this node call?"""
+        if not self.driver: return []
         query = """
         MATCH (n:CodeNode {id: $id})-[:CALLS]->(callee:CodeNode)
         RETURN callee
@@ -192,10 +204,12 @@ class GraphStore:
 
     def clear(self) -> None:
         """Delete all nodes and edges — useful for re-indexing."""
+        if not self.driver: return
         with self.driver.session() as session:
             session.run("MATCH (n:CodeNode) DETACH DELETE n")
 
     def node_count(self) -> int:
+        if not self.driver: return 0
         with self.driver.session() as session:
             result = session.run("MATCH (n:CodeNode) RETURN count(n) AS c").single()
             return result["c"] if result else 0
