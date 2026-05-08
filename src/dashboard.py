@@ -2,6 +2,7 @@
 import streamlit as st
 import os
 import time
+import json
 from pyvis.network import Network
 import streamlit.components.v1 as components
 from src.assistant import CodeAssistant
@@ -12,130 +13,197 @@ load_dotenv()
 
 # --- Page Config ---
 st.set_page_config(
-    page_title="GAC-RAG Dashboard",
-    page_icon="🧠",
+    page_title="GAC-RAG | Enterprise Code Intelligence",
+    page_icon="🏢",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# --- Custom CSS for Premium Look ---
+# --- Premium "Enterprise Classic" CSS ---
 st.markdown("""
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+
+    html, body, [class*="st-"] {
+        font-family: 'Inter', sans-serif;
+    }
+
     .main {
-        background-color: #0e1117;
+        background-color: #f8fafc;
     }
-    .stButton>button {
-        width: 100%;
-        border-radius: 5px;
-        height: 3em;
-        background-color: #262730;
-        color: white;
-        border: 1px solid #4a4a4a;
+
+    /* Professional Sidebar */
+    [data-testid="stSidebar"] {
+        background-color: #ffffff;
+        border-right: 1px solid #e2e8f0;
     }
-    .stButton>button:hover {
-        border: 1px solid #ff4b4b;
-        color: #ff4b4b;
-    }
-    .stTextInput>div>div>input {
-        background-color: #262730;
-        color: white;
-    }
-    .reportview-container .main .block-container{
-        padding-top: 2rem;
-    }
-    .chat-bubble {
+
+    /* Cards */
+    .metric-card {
+        background-color: #ffffff;
         padding: 1.5rem;
-        border-radius: 15px;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         margin-bottom: 1rem;
-        border: 1px solid #333;
     }
+
+    .metric-label {
+        color: #64748b;
+        font-size: 0.875rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.025em;
+    }
+
+    .metric-value {
+        color: #0f172a;
+        font-size: 1.875rem;
+        font-weight: 700;
+        margin-top: 0.25rem;
+    }
+
+    /* Custom Buttons */
+    .stButton>button {
+        background-color: #2563eb;
+        color: white;
+        border-radius: 8px;
+        font-weight: 600;
+        border: none;
+        padding: 0.5rem 1rem;
+        transition: all 0.2s;
+    }
+
+    .stButton>button:hover {
+        background-color: #1d4ed8;
+        border: none;
+        color: white;
+    }
+
+    /* Chat Styling */
+    .chat-bubble {
+        padding: 1rem 1.25rem;
+        border-radius: 12px;
+        margin-bottom: 0.75rem;
+        font-size: 0.95rem;
+        line-height: 1.5;
+    }
+
     .user-bubble {
-        background-color: #1e2a3a;
+        background-color: #eff6ff;
+        border: 1px solid #dbeafe;
+        color: #1e40af;
+        margin-left: 2rem;
     }
+
     .assistant-bubble {
-        background-color: #262730;
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        color: #334155;
+        margin-right: 2rem;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+
+    .node-card {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 0.5rem;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# --- Session State Initialization ---
+# --- Session State ---
 if "assistant" not in st.session_state:
     st.session_state.assistant = None
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "last_nodes" not in st.session_state:
     st.session_state.last_nodes = []
+if "insights" not in st.session_state:
+    st.session_state.insights = None
+
+# --- Header ---
+col_h1, col_h2 = st.columns([3, 1])
+with col_h1:
+    st.title("🏛️ GAC-RAG")
+    st.caption("Graph-Augmented Code Retrieval & Multi-Agent Synthesis")
+with col_h2:
+    if st.session_state.assistant:
+        st.success("● Engine Online")
+    else:
+        st.warning("○ Engine Offline")
 
 # --- Sidebar ---
 with st.sidebar:
-    st.title("🧠 GAC-RAG")
+    st.subheader("⚙️ System Configuration")
+    repo_path = st.text_input("Project Root", value="./sample_repo")
+    provider = st.selectbox("Intelligence Provider", ["google", "openai", "anthropic"])
+    
     st.markdown("---")
-    
-    repo_path = st.text_input("Repository Path", value="./sample_repo")
-    llm_provider = st.selectbox("LLM Provider", ["anthropic", "openai", "google"])
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Initialize"):
-            with st.spinner("Initializing GAC-RAG..."):
-                st.session_state.assistant = CodeAssistant(
-                    repo_path=repo_path, 
-                    llm_provider=llm_provider
-                )
-                st.success("Assistant ready!")
-                
-    with col2:
-        if st.button("Re-Index"):
-            if st.session_state.assistant:
-                with st.spinner("Indexing repository..."):
-                    st.session_state.assistant.index(clear_existing=True)
-                    st.success("Index complete!")
-            else:
-                st.error("Init first!")
+    if st.button("🚀 Initialize System", use_container_width=True):
+        try:
+            with st.spinner("Configuring neural graph..."):
+                st.session_state.assistant = CodeAssistant(repo_path=repo_path, llm_provider=provider)
+                st.session_state.insights = st.session_state.assistant.get_codebase_insights()
+                st.success("System ready!")
+        except Exception as e:
+            st.error(f"Initialization failed: {str(e)}")
+
+    if st.session_state.assistant:
+        if st.button("⚡ Re-Index Repository", use_container_width=True):
+            with st.spinner("Analyzing codebase structure..."):
+                st.session_state.assistant.index(clear_existing=True)
+                st.session_state.insights = st.session_state.assistant.get_codebase_insights()
+                st.success("Indexing complete!")
 
     st.markdown("---")
-    st.subheader("Settings")
-    max_hops = st.slider("Max Hops", 1, 4, 2)
-    top_k = st.slider("Top-K Anchors", 1, 10, 5)
+    st.subheader("🔍 Search Parameters")
+    max_hops = st.slider("Graph Traversal Hops", 1, 5, 2)
+    top_k = st.slider("Vector Candidates", 1, 15, 5)
     
     if st.session_state.assistant:
         st.session_state.assistant.retriever.max_hops = max_hops
         st.session_state.assistant.retriever.top_k_anchor = top_k
 
-# --- Main Layout ---
-tab1, tab2, tab3 = st.tabs(["💬 Chat", "🕸️ Graph Explorer", "📁 Node Inspector"])
+# --- Dashboard Metrics ---
+if st.session_state.insights:
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        st.markdown(f"""<div class="metric-card"><div class="metric-label">Nodes</div><div class="metric-value">{st.session_state.insights['total_nodes']}</div></div>""", unsafe_allow_html=True)
+    with m2:
+        st.markdown(f"""<div class="metric-card"><div class="metric-label">Relationships</div><div class="metric-value">{st.session_state.insights['total_edges']}</div></div>""", unsafe_allow_html=True)
+    with m3:
+        st.markdown(f"""<div class="metric-card"><div class="metric-label">Graph Density</div><div class="metric-value">{st.session_state.insights['health'].get('avg_degree', 0):.2f}</div></div>""", unsafe_allow_html=True)
+    with m4:
+        st.markdown(f"""<div class="metric-card"><div class="metric-label">Orphan Files</div><div class="metric-value">{st.session_state.insights['health'].get('orphan_nodes', 0)}</div></div>""", unsafe_allow_html=True)
 
-with tab1:
-    st.title("Code Intelligence Chat")
-    
-    # Chat display
-    for message in st.session_state.chat_history:
-        role = "User" if message["role"] == "user" else "Assistant"
-        css_class = "user-bubble" if message["role"] == "user" else "assistant-bubble"
-        st.markdown(f"""
-            <div class="chat-bubble {css_class}">
-                <strong>{role}:</strong><br>{message['content']}
-            </div>
-        """, unsafe_allow_html=True)
+# --- Main Content ---
+tabs = st.tabs(["💬 Intelligence Chat", "🕸️ Knowledge Graph", "🧬 Codebase Insights", "📁 Explorer"])
 
-    # Input area
-    query = st.chat_input("Ask a question about your codebase...")
-    if query:
+with tabs[0]:
+    # Chat Interface
+    chat_container = st.container()
+    with chat_container:
+        for msg in st.session_state.chat_history:
+            role_class = "user-bubble" if msg["role"] == "user" else "assistant-bubble"
+            st.markdown(f'<div class="chat-bubble {role_class}">{msg["content"]}</div>', unsafe_allow_html=True)
+
+    # Input
+    if query := st.chat_input("Ask about architecture, logic, or dependencies..."):
         st.session_state.chat_history.append({"role": "user", "content": query})
         
-        with st.chat_message("assistant"):
-            response_placeholder = st.empty()
-            full_response = ""
-            
-            # Use the streaming API we built earlier
-            if st.session_state.assistant:
-                # We need to capture the retrieved nodes for the other tabs
+        if st.session_state.assistant:
+            with st.chat_message("assistant"):
+                # Retrieval
                 candidates = st.session_state.assistant.retriever.retrieve(query)
                 final_nodes, _ = st.session_state.assistant.reranker.rerank(query, candidates)
                 st.session_state.last_nodes = final_nodes
                 
-                # Manual streaming display for Streamlit
-                context = st.session_state.assistant.retriever.format_context(final_nodes)
+                # Streaming Answer
+                response_placeholder = st.empty()
+                full_response = ""
                 for chunk in st.session_state.assistant.stream_ask(query):
                     full_response += chunk
                     response_placeholder.markdown(full_response + "▌")
@@ -143,54 +211,57 @@ with tab1:
                 
                 st.session_state.chat_history.append({"role": "assistant", "content": full_response})
                 st.rerun()
-            else:
-                st.error("Please initialize the assistant in the sidebar.")
+        else:
+            st.error("Please initialize the system in the sidebar.")
 
-with tab2:
-    st.title("Retrieval Graph")
+with tabs[1]:
+    st.subheader("Structural Dependency Graph")
     if st.session_state.last_nodes:
-        st.write(f"Visualizing relationship between {len(st.session_state.last_nodes)} retrieved nodes.")
+        net = Network(height="600px", width="100%", bgcolor="#f8fafc", font_color="#0f172a", directed=True)
+        for n in st.session_state.last_nodes:
+            color = "#3b82f6" if n.kind == "function" else "#f59e0b" if n.kind == "class" else "#10b981"
+            net.add_node(n.id, label=n.name, title=f"File: {n.file_path}", color=color, size=20)
         
-        # Create PyVis network
-        net = Network(height="600px", width="100%", bgcolor="#0e1117", font_color="white", directed=True)
-        
-        nodes = st.session_state.last_nodes
-        node_ids = {n.id for n in nodes}
-        
-        for n in nodes:
-            color = "#4a90e2" if n.kind == "function" else "#f5a623" if n.kind == "class" else "#7ed321"
-            net.add_node(n.id, label=n.name, title=f"File: {n.file_path}\nKind: {n.kind}", color=color, size=25)
-            
-        # Add edges (simplified check for demo)
-        for n in nodes:
-            # In a real app, we'd query Neo4j for actual edges between these specific nodes
-            # Here we'll just show some placeholder edges or if the graph store supports it
-            pass
-            
-        net.repulsion(node_distance=200, spring_length=200)
-        
-        # Save and display
-        path = "graph.html"
+        net.toggle_physics(True)
+        path = "graph_enterprise.html"
         net.save_graph(path)
-        HtmlFile = open(path, 'r', encoding='utf-8')
-        source_code = HtmlFile.read() 
-        components.html(source_code, height=650)
+        with open(path, 'r', encoding='utf-8') as f:
+            components.html(f.read(), height=650)
     else:
-        st.info("Ask a question in the Chat tab to see the retrieved context graph.")
+        st.info("Retrieve context via chat to visualize the sub-graph.")
 
-with tab3:
-    st.title("Node Inspector")
+with tabs[2]:
+    st.subheader("Architectural Hubs")
+    if st.session_state.insights:
+        hubs = st.session_state.insights.get('top_hubs', [])
+        if hubs:
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.write("Top Connected Components (High Centrality)")
+                df_hubs = [{"Name": h['name'], "Kind": h['kind'], "Connections": h['degree']} for h in hubs]
+                st.table(df_hubs)
+            with col_b:
+                # Simple distribution
+                kind_data = st.session_state.insights['health'].get('by_kind', {})
+                st.write("Component Distribution")
+                st.bar_chart(kind_data)
+        else:
+            st.info("No hubs detected. Try re-indexing.")
+    else:
+        st.info("Initialize system to see codebase insights.")
+
+with tabs[3]:
+    st.subheader("Code Inspector")
     if st.session_state.last_nodes:
         for node in st.session_state.last_nodes:
-            with st.expander(f"[{node.kind.upper()}] {node.name} (Score: {node.score:.3f})"):
+            with st.expander(f"{node.kind.upper()}: {node.name}"):
+                st.text(f"Path: {node.file_path}")
                 st.code(node.source_code, language=node.language)
-                st.markdown(f"**File:** `{node.file_path}`")
-                st.markdown(f"**Lines:** `{node.start_line} - {node.end_line}`")
                 if node.docstring:
-                    st.info(node.docstring)
+                    st.markdown(f"**AI Summary:** *{node.docstring}*")
     else:
-        st.info("No nodes retrieved yet.")
+        st.info("Nodes will appear here after a query.")
 
 # --- Footer ---
 st.markdown("---")
-st.markdown("GAC-RAG: Graph-Augmented Code Retrieval-Augmented Generation")
+st.markdown("<div style='text-align: center; color: #94a3b8; font-size: 0.8rem;'>GAC-RAG Enterprise v2.1 | Powered by Gemini 1.5 Pro & Neo4j</div>", unsafe_allow_html=True)
