@@ -1,14 +1,7 @@
-"""
-reranker.py
-Layer 3 of GAC-RAG: LLM-based reranker.
-Uses Claude to prune irrelevant nodes from the expanded context
-before final answer generation.
-"""
 
-from __future__ import annotations
-import os
-import json
+from typing import Optional, Literal
 import anthropic
+from openai import OpenAI
 from dotenv import load_dotenv
 from src.graph_store import CodeNode
 
@@ -44,11 +37,21 @@ class Reranker:
     This is Layer 3 of the GAC-RAG pipeline.
     """
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "claude-sonnet-4-20250514"):
-        self.client = anthropic.Anthropic(
-            api_key=api_key or os.getenv("ANTHROPIC_API_KEY")
-        )
-        self.model = model
+    def __init__(
+        self, 
+        api_key: Optional[str] = None, 
+        provider: Literal["anthropic", "openai"] = "anthropic",
+        model: Optional[str] = None
+    ):
+        self.provider = provider
+        if provider == "anthropic":
+            self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+            self.model = model or "claude-3-5-sonnet-20240620"
+            self.client = anthropic.Anthropic(api_key=self.api_key)
+        else:
+            self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+            self.model = model or "gpt-4-turbo"
+            self.client = OpenAI(api_key=self.api_key)
 
     def rerank(
         self,
@@ -58,19 +61,10 @@ class Reranker:
     ) -> tuple[list[CodeNode], str]:
         """
         Filter nodes to only the ones relevant for the query.
-
-        Args:
-            query:   The user's question.
-            nodes:   Candidate nodes from Layers 1+2.
-            verbose: Print reranker reasoning.
-
-        Returns:
-            (filtered_nodes, reasoning_string)
         """
         if not nodes:
             return [], "No nodes to rerank."
 
-        # Build a compact node summary for the LLM
         node_summaries = self._build_node_summaries(nodes)
 
         prompt = f"""Question: {query}
@@ -81,15 +75,25 @@ Code nodes to evaluate:
 Which of these nodes are necessary to answer the question?"""
 
         try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=1000,
-                system=RERANKER_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            raw = response.content[0].text.strip()
+            if self.provider == "anthropic":
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=1000,
+                    system=RERANKER_SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                raw = response.content[0].text.strip()
+            else:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": RERANKER_SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=1000,
+                )
+                raw = response.choices[0].message.content.strip()
 
-            # Strip markdown code fences if present
             if raw.startswith("```"):
                 raw = raw.split("```")[1]
                 if raw.startswith("json"):
@@ -106,7 +110,6 @@ Which of these nodes are necessary to answer the question?"""
                 print(f"\n[Layer 3 - Reranker] Kept {len(filtered)}/{len(nodes)} nodes")
                 print(f"  Reasoning: {reasoning}")
 
-            # Fallback: if reranker returns nothing, keep top-5 by score
             if not filtered:
                 filtered = sorted(nodes, key=lambda n: n.score, reverse=True)[:5]
                 reasoning = "Fallback: reranker returned empty — using top-5 by score."
@@ -114,7 +117,6 @@ Which of these nodes are necessary to answer the question?"""
             return filtered, reasoning
 
         except (json.JSONDecodeError, Exception) as e:
-            # Graceful fallback on any error
             fallback = sorted(nodes, key=lambda n: n.score, reverse=True)[:8]
             return fallback, f"Reranker error ({e}), using top-8 by score."
 
